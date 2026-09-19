@@ -65,3 +65,6 @@ jobs:
           npm run test:desktop:platforms -- electron/desktop-update-branch.test.ts
           npx tsc -p . --noEmit
           npx tsc -p tsconfig.electron.json --noEmit
+      - name: Build Desktop from the validated source
+        working-directory: apps/desktop
+        run: npm run build

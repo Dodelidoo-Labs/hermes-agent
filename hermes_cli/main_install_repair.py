@@ -1252,11 +1252,5 @@ def _resolve_update_branch(args) -> str:
         return explicit
     from hermes_cli.main import PROJECT_ROOT
     from hermes_cli.update_cmd_git import _get_origin_url
-    origin = (_get_origin_url(["git"], PROJECT_ROOT) or "").rstrip("/").removesuffix(".git").lower()
-    if origin in {
-        "https://github.com/dodelidoo-labs/hermes-agent",
-        "git@github.com:dodelidoo-labs/hermes-agent",
-        "ssh://git@github.com/dodelidoo-labs/hermes-agent",
-    }:
-        return "opencdx"
-    return "main"
+    from hermes_cli.update_managed_fork import maintained_update_branch
+    return maintained_update_branch(_get_origin_url(["git"], PROJECT_ROOT) or "") or "main"
