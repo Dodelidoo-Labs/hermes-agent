@@ -357,7 +357,7 @@ def resolve_startup_model_route(
     raw_model: str, *, explicit_provider: str = "", current_provider: str = "",
     user_providers: Optional[dict] = None,
     custom_providers: Optional[list] = None) -> Optional[StartupModelRoute]:
-    """Resolve aliases and configured ``provider/model`` input at startup.
+    """Resolve aliases, ``provider:model`` and configured ``provider/model`` input at startup.
 
     ``HermesCLI`` is constructed before the interactive ``/model`` pipeline runs; resolving here
     keeps startup from attaching the configured default provider to an explicitly requested
@@ -385,7 +385,22 @@ def resolve_startup_model_route(
         return StartupModelRoute(
             model=direct.model, provider=alias_provider, base_url=direct.base_url, api_key=alias_key or "")
 
-    if explicit_provider or "/" not in raw:
+    if explicit_provider:
+        return None
+    # ``custom:<name>:<model>`` / ``<provider>:<model>`` — the same qualified form ``/model``
+    # accepts. Left undecoded, the configured default provider receives the unsplit string as
+    # the model name and the whole prompt goes to its endpoint before it 404s (#73943). The
+    # configured ids come from the caller's config, the same source the ``/`` branch below uses.
+    from hermes_cli.models import parse_model_input
+    from hermes_cli.providers import custom_provider_slug
+    custom_ids = {custom_provider_slug(str(entry.get("name") or key), str(key))
+                  for key, entry in (user_providers or {}).items() if isinstance(entry, dict)}
+    custom_ids.update(custom_provider_slug(str(entry.get("name") or ""))
+                      for entry in (custom_providers or []) if isinstance(entry, dict) and _clean(entry.get("name")))
+    qualified_provider, qualified_model = parse_model_input(raw, "", custom_ids=custom_ids)
+    if qualified_provider:
+        return StartupModelRoute(model=qualified_model, provider=qualified_provider)
+    if "/" not in raw:
         return None
     prefix, model = (part.strip() for part in raw.split("/", 1))
     if not prefix or not model:

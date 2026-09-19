@@ -553,6 +553,8 @@ Every profile that works kanban tasks automatically gets the worker lifecycle �
 3. Call `kanban_heartbeat(note="...")` every few minutes during long operations. **If your work may run longer than 1 hour, call `kanban_heartbeat` at least once an hour** — the dispatcher reclaims tasks that have been running past `kanban.dispatch_stale_timeout_seconds` (default 4 h) with no heartbeat in the last hour, on the assumption the worker crashed without cleanup. A reclaim is benign (the task goes back to `ready` for re-dispatch without a failure-counter tick) but you lose your current run's progress.
 4. Complete with `kanban_complete(summary="...", metadata={...})`, hand a code change off for same-card review with `kanban_request_review(summary="...")`, or `kanban_block(reason="...")` if stuck.
 
+Normal tool activity also extends the claim automatically (the worker mirrors its in-process liveness onto the board about once a minute). That bridge only works for a process the dispatcher spawned itself: a process that carries `HERMES_DELEGATED_CHILD_CONTEXT` next to `HERMES_KANBAN_TASK` (a `delegate_task` descendant, or a hand-launched copy of a worker's environment) is fenced from the board — its auto-heartbeat logs one `kanban auto-heartbeat for task … refused` warning and `kanban_complete` / `kanban_request_review` refuse. Fix the launch (let the dispatcher spawn the worker) rather than exporting the marker away.
+
 That final terminal board call (`kanban_complete` / `kanban_request_review` /
 `kanban_block`; reviewers end with `kanban_complete` or `kanban_request_changes`)
 is part of the worker
@@ -563,7 +565,12 @@ therefore exits non-zero: `1` for an ordinary failure, and `75`
 (`EX_TEMPFAIL`) when the provider was rate-limited, overloaded, returning
 5xx or timing out, or the account hit a billing/quota wall — the dispatcher records that run as `rate_limited` and
 requeues the task without counting a failure, so a quota window is never
-booked as a protocol violation.
+booked as a protocol violation. The worker also writes its exit code as the
+last line of its own log (`[kanban-worker-exit] rc=<code>`), so a per-tick
+`hermes kanban dispatch` process — which never reaped the worker and cannot
+read its exit status — books the same death the same way the gateway-embedded
+dispatcher does; a worker killed before it reaches that line is a plain
+`crashed` (`pid <n> not alive`).
 
 **Agent-side prevention:** Before the worker exits, Hermes injects up to two
 synthetic nudges when it detects the model is about to stop without a terminal
@@ -584,7 +591,10 @@ before reaching the nudge, the dispatcher gives the violation a **bounded retry*
 before auto-blocking the task instead of respawning it into the same loop. The
 budget counts only *consecutive* clean-exit protocol violations — interleaved
 rate-limited requeues are neutral, and any other failure kind resets the
-streak — and a per-task `max_retries` overrides the bound. This usually means
+streak — and a per-task `max_retries` overrides the bound. A card blocked by
+this budget stays blocked (it is not auto-promoted like a below-`failure_limit`
+breaker block) until `hermes kanban unblock <id>`, which also grants a fresh
+retry budget. This usually means
 the model wrote a plain-text answer and exited without using the Kanban tool
 surface.
 
@@ -667,7 +677,7 @@ For the occasional quality-sensitive card, pin just that task back to a stronger
 
 ### Lifecycle plugin hooks
 
-Board transitions fire [plugin hooks](/user-guide/features/hooks#plugin-hooks): `kanban_task_claimed`, `kanban_task_completed`, and `kanban_task_blocked`, each carrying `task_id` and `profile_name`. Hooks fire **after** the board DB change commits, so callbacks always see durable state. Note the process split: `kanban_task_claimed` fires in the **dispatcher** process, while `kanban_task_completed`/`kanban_task_blocked` fire in the **worker** process — register the hook in the dispatcher profile to observe every transition centrally.
+Board transitions fire [plugin hooks](./hooks.md#plugin-hooks): `kanban_task_claimed`, `kanban_task_completed`, and `kanban_task_blocked`, each carrying `task_id` and `profile_name`. Hooks fire **after** the board DB change commits, so callbacks always see durable state. Note the process split: `kanban_task_claimed` fires in the **dispatcher** process, while `kanban_task_completed`/`kanban_task_blocked` fire in the **worker** process — register the hook in the dispatcher profile to observe every transition centrally.
 
 ```python
 def register(ctx):
@@ -1260,7 +1270,7 @@ A "wake" forges a synthetic inbound message to the destination gateway agent so 
 
 In a one-gateway-per-profile deployment (one dispatcher, separate gateway
 processes for `writer`, `admin`, etc. — see the [multi-gateway
-guide](/user-guide/features/kanban-multi-gateway)),
+guide](./kanban-multi-gateway.md)),
 dispatch and delivery have separate owners:
 
 - **Dispatch stays single-owner.** Exactly one gateway keeps
