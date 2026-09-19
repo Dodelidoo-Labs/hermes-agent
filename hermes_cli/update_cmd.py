@@ -547,7 +547,9 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
 
     # Probe locally for an 'upstream' remote before a network fetch non-forks always fail.
     fetch_result = None
-    if branch == "main" and _git_run(git_cmd, ["remote", "get-url", "upstream"]).returncode == 0:
+    from hermes_cli.update_managed_fork import is_maintained_checkout
+    if (branch == "main" and not is_maintained_checkout(git_cmd, _m().PROJECT_ROOT)
+            and _git_run(git_cmd, ["remote", "get-url", "upstream"]).returncode == 0):
         print("→ Fetching from upstream...")
         fetch_result = _git_run(git_cmd, ["fetch"] + depth_args + ["upstream", branch], network=True)
     if fetch_result is not None and fetch_result.returncode == 0:
@@ -588,7 +590,13 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
             return
         from hermes_cli.banner import _github_compare_behind
         # counted == 0 means local-ahead, not behind; None means the API could not count.
-        _print_update_check_result(_github_compare_behind(head_sha, target_sha), compare_branch)
+        if is_maintained_checkout(git_cmd, _m().PROJECT_ROOT):
+            from hermes_cli.banner import _comparison_repo
+            behind = _github_compare_behind(
+                head_sha, target_sha, repo_slug=_comparison_repo(_m().PROJECT_ROOT))
+        else:
+            behind = _github_compare_behind(head_sha, target_sha)
+        _print_update_check_result(behind, compare_branch)
         return
 
     rev_result = _git_run(git_cmd, ["rev-list", f"HEAD..{compare_branch}", "--count"], check=True)
@@ -762,6 +770,9 @@ def _repair_current_checkout(
 def _reconcile_diverged_checkout(git_cmd, branch: str, pre_pull_sha) -> None:
     """Fast-forward failed: merge on a custom branch (local commits survive) or reset --hard on the
     same branch (rescue ref first when histories share no ancestor). ``sys.exit(1)`` on failure."""
+    from hermes_cli.update_managed_fork import check_maintained_update
+    if check_maintained_update(git_cmd, _m().PROJECT_ROOT, branch):
+        raise SystemExit("Update refused: the maintained fork could not fast-forward. No reset was attempted.")
     # A custom branch (local commits atop origin/<branch>) also can't ff, and reset --hard
     # would discard that work: merge instead, stop on conflict.
     _cur_branch = (_git_run(git_cmd, ["branch", "--show-current"]).stdout or "").strip()
@@ -941,6 +952,8 @@ def _prepare_checkout_for_update(
     """Parked-branch guard, land on the target, stash, count new commits. Exits when the
     checkout is unsafe to move or the target is missing. ``commit_count`` is 0 when up to
     date, -1 when tips differ but the shallow count is unrecoverable."""
+    from hermes_cli.update_managed_fork import check_maintained_update
+    check_maintained_update(git_cmd, _m().PROJECT_ROOT, branch)
     parked_branch_switched, in_place_update, switch_block_reason = _apply_parked_branch_guard(
         git_cmd, branch, current_branch, switch_branch=switch_branch,
         _windows_gateway_resume=_windows_gateway_resume)
@@ -1133,10 +1146,11 @@ def _prepare_git_command() -> tuple[bool, list, bool]:
 
     # Before stash/branch logic: npm rewrites package-lock.json non-deterministically and
     # line-ending churn is machine-made dirt; both would otherwise force an autostash every update.
-    _discard_lockfile_churn(git_cmd, _m().PROJECT_ROOT)
-    _normalize_managed_eol(git_cmd, _m().PROJECT_ROOT)
-
     origin_url = _m()._get_origin_url(git_cmd, _m().PROJECT_ROOT)
+    from hermes_cli.update_managed_fork import maintained_update_branch
+    if maintained_update_branch(origin_url or "") is None:
+        _discard_lockfile_churn(git_cmd, _m().PROJECT_ROOT)
+        _normalize_managed_eol(git_cmd, _m().PROJECT_ROOT)
     is_fork = _is_fork(origin_url)
 
     if is_fork:

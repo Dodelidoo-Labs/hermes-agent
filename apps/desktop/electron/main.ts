@@ -1,4 +1,4 @@
-import { defaultDesktopUpdateBranch, readDesktopUpdateConfig as readDesktopUpdateConfigForOrigin } from './desktop-update-branch'
+import { readDesktopUpdateConfig as readDesktopUpdateConfigForOrigin } from './desktop-update-branch'
 import { execFileSync, spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -3234,7 +3234,7 @@ async function resolveHealedBranch(updateRoot, branch) {
   }
 
   const originUrl = await getOriginUrl(updateRoot)
-  const fallbackBranch = defaultDesktopUpdateBranch(originUrl)
+  const fallbackBranch = DEFAULT_UPDATE_BRANCH
   // A missing maintained branch must fail the update, never replace its fixes with main.
   if (branch === fallbackBranch) return branch
   const remote = isOfficialSshRemote(originUrl) ? OFFICIAL_REPO_HTTPS_URL : 'origin'
@@ -17584,7 +17584,7 @@ ipcMain.handle('hermes:updates:branch:get', async () => readDesktopUpdateConfig(
 ipcMain.handle('hermes:updates:branch:set', async (_event, name) => {
   const branch = typeof name === 'string' && name.trim()
     ? name.trim()
-    : defaultDesktopUpdateBranch(await getOriginUrl(resolveUpdateRoot()))
+    : DEFAULT_UPDATE_BRANCH
   writeDesktopUpdateConfig({ branch })
 
   return { branch }

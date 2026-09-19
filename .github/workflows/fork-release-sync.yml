@@ -1,0 +1,123 @@
+name: Review upstream Hermes releases
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Dodelidoo-Labs/hermes-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      base: ${{ steps.merge.outputs.base }}
+      candidate: ${{ steps.merge.outputs.candidate }}
+      upstream: ${{ steps.merge.outputs.upstream }}
+      tag: ${{ steps.merge.outputs.tag }}
+      branch: ${{ steps.merge.outputs.branch }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare the latest published release
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/NousResearch/hermes-agent/releases/latest > "$RUNNER_TEMP/upstream-release.json"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python .github/scripts/fork_release.py \
+            --release "$RUNNER_TEMP/upstream-release.json" \
+            --output "$RUNNER_TEMP/release-review"
+      - name: Already contains this release
+        if: steps.merge.outputs.candidate == ''
+        run: echo 'The maintained branch already contains the latest published release. No downgrade or main-branch update proposed.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.merge.outputs.candidate != ''
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/release-review/
+          # Keep review evidence longer than the daily polling interval.
+          retention-days: 90
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.candidate != ''
+    uses: ./.github/workflows/fork-compatibility.yml
+    with:
+      base: ${{ needs.prepare.outputs.base }}
+      candidate: ${{ needs.prepare.outputs.candidate }}
+
+  propose:
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      # This job never runs code from the candidate with its write-capable token.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/upstream-candidate
+      - name: Publish reviewed candidate and update its pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ needs.prepare.outputs.base }}
+          CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          BRANCH: ${{ needs.prepare.outputs.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git fetch "$RUNNER_TEMP/upstream-candidate/candidate.bundle" HEAD
+          test "$(git rev-parse FETCH_HEAD)" = "$CANDIDATE"
+          git merge-base --is-ancestor "$BASE" "$CANDIDATE"
+          gh auth setup-git
+          git fetch origin main
+          if test "$(git rev-parse FETCH_HEAD)" != "$BASE"; then
+            echo 'Maintained branch moved during validation; rerun against its new head.' >&2
+            exit 1
+          fi
+          branch="$BRANCH"
+          # Ordinary push preserves any human amendments made during validation.
+          git push origin "$CANDIDATE:refs/heads/$branch"
+          # Bot-created PRs do not trigger pull_request workflows with GITHUB_TOKEN.
+          # Attach the completed validation to the exact candidate SHA explicitly.
+          gh api --method POST "repos/$GH_REPO/statuses/$CANDIDATE" \
+            -f state=success -f context='compatibility' \
+            -f target_url="$RUN_URL" \
+            -f description='Exact candidate passed compatibility tests and Desktop build'
+          body="$RUNNER_TEMP/upstream-pr.md"
+          cp "$RUNNER_TEMP/upstream-candidate/review.md" "$body"
+          printf '\nValidation and downloadable review artifact: %s\n' "$RUN_URL" >> "$body"
+          pr=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if test -n "$pr"; then
+            gh pr edit "$pr" --title "Integrate Hermes release $RELEASE_TAG" --body-file "$body"
+          else
+            if ! gh pr create --base main --head "$branch" --title "Integrate Hermes release $RELEASE_TAG" --body-file "$body"; then
+              echo 'Candidate published; automatic PR creation failed. Check Actions PR permissions or open manually.' >> "$GITHUB_STEP_SUMMARY"
+              echo "Open a PR manually: https://github.com/$GH_REPO/compare/main...$branch?expand=1" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi

@@ -9,9 +9,9 @@ from hermes_cli.main_install_repair import _resolve_update_branch
 
 
 @pytest.mark.parametrize("origin,expected", [
-    ("https://github.com/Dodelidoo-Labs/hermes-agent.git", "opencdx"),
-    ("git@github.com:Dodelidoo-Labs/hermes-agent.git", "opencdx"),
-    ("ssh://git@github.com/Dodelidoo-Labs/hermes-agent.git", "opencdx"),
+    ("https://github.com/Dodelidoo-Labs/hermes-agent.git", "main"),
+    ("git@github.com:Dodelidoo-Labs/hermes-agent.git", "main"),
+    ("ssh://git@github.com/Dodelidoo-Labs/hermes-agent.git", "main"),
     ("https://github.com/NousResearch/hermes-agent.git", "main"),
     ("https://github.com/another-owner/hermes-agent.git", "main"),
     ("https://example.invalid/Dodelidoo-Labs/hermes-agent.git", "main"),
@@ -25,5 +25,5 @@ def test_update_target_uses_real_origin_without_overriding_explicit_branch(tmp_p
     for value in (None, "", "  "):
         assert _resolve_update_branch(SimpleNamespace(branch=value)) == expected
     assert _resolve_update_branch(SimpleNamespace()) == expected
-    for explicit in ("main", "opencdx", "feature/test"):
+    for explicit in ("main", "feature/test"):
         assert _resolve_update_branch(SimpleNamespace(branch=f" {explicit} ")) == explicit

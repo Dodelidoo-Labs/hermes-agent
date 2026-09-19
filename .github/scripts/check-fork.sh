@@ -15,4 +15,7 @@ scripts/run_tests.sh -j 2 \
   tests/hermes_cli/test_cached_fetch_api_models.py \
   tests/hermes_cli/test_inventory_reasoning_caps.py \
   tests/tui_gateway/contracts/test_generated.py \
-  tests/hermes_cli/test_opencdx_update_branch.py
+  tests/hermes_cli/test_fork_update_branch.py \
+  tests/hermes_cli/test_maintained_update_preservation.py \
+  tests/hermes_cli/test_maintained_update_source.py \
+  tests/scripts/test_fork_release.py

@@ -229,6 +229,9 @@ def _mark_skip_upstream_prompt():
 
 def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
     """Push updated main to origin (sync fork); True on success."""
+    from hermes_cli.update_managed_fork import is_maintained_checkout
+    if is_maintained_checkout(git_cmd, cwd):
+        return False
     return _git_ok(git_cmd, ["push", "origin", "main", "--force-with-lease"], cwd, network=True)
 
 
@@ -273,6 +276,10 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path, *, assume_yes: 
 
     See #97052.
     """
+    from hermes_cli.update_managed_fork import is_maintained_checkout
+    if is_maintained_checkout(git_cmd, cwd):
+        print("  Maintained fork: updates come only from reviewed origin/main releases.")
+        return True
     from hermes_cli.update_cmd import _count_commits_between, _has_upstream_remote, _no_prompt_git_kwargs, _should_skip_upstream_prompt
     if not _has_upstream_remote(git_cmd, cwd) and (
         _should_skip_upstream_prompt() or not _offer_upstream_remote(git_cmd, cwd, assume_yes=assume_yes, input_fn=input_fn)
