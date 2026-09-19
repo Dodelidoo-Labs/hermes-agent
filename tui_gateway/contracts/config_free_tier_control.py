@@ -242,6 +242,8 @@ class ModelCapabilities(Result):
     fast: bool
     reasoning: bool
     can_disable_reasoning: bool | None = None
+    supported_efforts: list[str] | None = None
+    default_effort: str | None = None
 
 
 class ModelOptionProvider(OpenModel):

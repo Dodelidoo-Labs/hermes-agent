@@ -574,7 +574,8 @@ export function ModelCatalogMenu({
                         </DropdownMenuSubTrigger>
                         <ModelEditSubmenu
                           canDisableReasoning={caps?.can_disable_reasoning ?? undefined}
-                          defaultEffort={defaultEffort}
+                          supportedEfforts={caps?.supported_efforts ?? undefined}
+                          defaultEffort={caps?.default_effort ?? defaultEffort}
                           effort={effEffort}
                           fastControl={fastControl}
                           isActive={isCurrent}

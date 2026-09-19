@@ -291,6 +291,7 @@ def _apply_capabilities(rows: list[dict]) -> None:
 
     for row in rows:
         slug = row.get("slug") or ""
+        metadata = row.pop("model_metadata", {})
         caps: dict[str, dict[str, Any]] = {}
         read_reasoning_catalog = _reasoning_catalog_reader(slug.lower())
 
@@ -318,6 +319,8 @@ def _apply_capabilities(rows: list[dict]) -> None:
                 elif detail:
                     entry["can_disable_reasoning"] = not detail.get("mandatory")
 
+            from hermes_cli.models_endpoint_catalog import catalog_capabilities
+            entry.update(catalog_capabilities(metadata.get(model, {})))
             caps[model] = entry
 
         row["capabilities"] = caps

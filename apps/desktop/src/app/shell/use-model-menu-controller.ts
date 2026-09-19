@@ -69,6 +69,7 @@ export function useModelMenuController({
   // never repaint that fallback once the catalog resolved.
   const modelOptions = useQuery({
     queryKey: modelOptionsQueryKey(profile, activeSessionId, ownerConnectionId),
+    refetchInterval: 60_000,
     queryFn: (): Promise<ModelOptionsResult> =>
       requestModelOptions({ gateway, profile, request: requestGateway, sessionId: activeSessionId })
   })

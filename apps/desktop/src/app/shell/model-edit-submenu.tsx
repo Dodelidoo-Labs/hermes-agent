@@ -65,6 +65,7 @@ interface ModelEditSubmenuProps {
    *  routes, whose upstream rejects a disable — the toggle is hidden rather
    *  than offered as a control that silently does nothing. */
   canDisableReasoning?: boolean
+  supportedEfforts?: readonly string[]
   /** The profile's configured default effort — what an unset row inherits.
    *  Passed in (not read from a store) so this submenu stays pure. */
   defaultEffort: string
@@ -107,6 +108,7 @@ export function ModelEditSubmenu(props: ModelEditSubmenuProps) {
  *  per-row submenu, the composer's reasoning pill in its own top-level menu. */
 export function ModelOptionsContent({
   canDisableReasoning,
+  supportedEfforts,
   defaultEffort,
   effort,
   fastControl,
@@ -118,7 +120,11 @@ export function ModelOptionsContent({
   const { t } = useI18n()
   const copy = t.shell.modelOptions
 
-  const effortValue = resolveReasoningEffort(effort, defaultEffort)
+  const availableEfforts: readonly string[] = supportedEfforts?.filter(value => value !== 'none') ?? REASONING_EFFORTS
+  const requestedEffort = resolveReasoningEffort(effort, defaultEffort)
+  const effortValue = availableEfforts.includes(requestedEffort)
+    ? requestedEffort
+    : availableEfforts.includes(defaultEffort) ? defaultEffort : availableEfforts[0] ?? ''
   const thinkingOn = isThinkingEnabled(effort, defaultEffort)
   const showThinkingToggle = reasoning && canDisableReasoning !== false
 
@@ -171,14 +177,14 @@ export function ModelOptionsContent({
           <DropdownMenuSeparator className="mx-0" />
           <DropdownMenuLabel className={dropdownMenuSectionLabel}>{copy.effort}</DropdownMenuLabel>
           <DropdownMenuRadioGroup onValueChange={value => onSetOptions({ effort: value })} value={effortValue}>
-            {REASONING_EFFORTS.map(value => (
+            {availableEfforts.map(value => (
               <DropdownMenuRadioItem
                 className={dropdownMenuRow}
                 key={value}
                 onSelect={event => event.preventDefault()}
                 value={value}
               >
-                {copy[value]}
+                {copy[value as keyof typeof copy] ?? value}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

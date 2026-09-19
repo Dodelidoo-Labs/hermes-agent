@@ -85,7 +85,8 @@ def _get_json(
     call time so monkeypatching ``_urlopen_model_catalog_request`` still applies). Raises on failure."""
     req = urllib.request.Request(url, headers=headers or {})
     with (opener or _urlopen_model_catalog_request)(req, timeout=timeout, **open_kwargs) as resp:
-        return json.loads(resp.read().decode())
+        from hermes_cli.models_endpoint_catalog import read_catalog_response
+        return read_catalog_response(resp)
 
 
 def _read_json_cache(path: Path, *, errors=Exception) -> Optional[dict]:
@@ -2325,8 +2326,12 @@ def probe_api_models(
             continue
         if _neg_key is not None:
             _probe_neg_cache.pop(_neg_key, None)
+        from hermes_cli.models_endpoint_catalog import EndpointModels
+        items = data.get("data")
+        if not isinstance(items, list):
+            continue
         return _probe_result(
-            [m.get("id", "") for m in data.get("data", [])], url, candidate_base.rstrip("/"),
+            EndpointModels(items, getattr(data, "cache_ttl_seconds", None)), url, candidate_base.rstrip("/"),
             alternate_base if alternate_base != candidate_base else normalized, is_fallback)
 
     if _neg_key is not None and not reachable:
@@ -2521,11 +2526,18 @@ def cached_fetch_api_models(
     without minting a command token before cache admission."""
     from hermes_cli.model_switch_providers import _NativePickerModelList
 
+    from hermes_cli.models_endpoint_catalog import EndpointModels
+
     def _catalog(entry):
+        if "metadata" in entry:
+            return EndpointModels(list(entry["metadata"].values()), entry.get("cache_ttl_seconds"))
         return (_NativePickerModelList if entry.get("native_catalog") else list)(entry["models"])
 
     def _entry(live, at=None):
-        return {**_cache_entry(fp, live, at), "native_catalog": isinstance(live, _NativePickerModelList)}
+        result = {**_cache_entry(fp, live, at), "native_catalog": isinstance(live, _NativePickerModelList)}
+        if isinstance(live, EndpointModels):
+            result.update(metadata=live.metadata, cache_ttl_seconds=live.cache_ttl_seconds)
+        return result
 
     def _live():
         if fetch_models is not None:
@@ -2547,7 +2559,10 @@ def cached_fetch_api_models(
     entry = cache.get(cache_key)
     now = time.time()
     native_row = isinstance(entry, dict) and entry.get("native_catalog") is True
-    valid = not force_refresh and _cache_entry_valid(entry, fp, allow_empty=native_row)
+    endpoint_row = isinstance(entry, dict) and isinstance(entry.get("metadata"), dict)
+    if endpoint_row and isinstance(entry.get("cache_ttl_seconds"), (int, float)):
+        ttl_seconds = min(ttl_seconds, max(0, entry["cache_ttl_seconds"]))
+    valid = not force_refresh and _cache_entry_valid(entry, fp, allow_empty=native_row or endpoint_row)
 
     if valid:
         age = now - entry["at"]
@@ -2556,14 +2571,14 @@ def cached_fetch_api_models(
         # An empty native catalog is authoritative only inside the TTL (as in
         # cached_provider_model_ids): never stale-serve it, or an Ollama that was model-less at
         # first open keeps an empty row for the whole stale window after models are pulled.
-        if entry["models"] and age < _PROVIDER_MODELS_STALE_SERVE_MAX:
+        if entry["models"] and age < _PROVIDER_MODELS_STALE_SERVE_MAX and (cache_only or not endpoint_row):
             # Stale-while-revalidate: serve now, refresh off-thread for the next open. cache_only
             # opens (GUI pickers that must not block on a stopped local server) take the same
             # non-blocking refresh: without it a locally loaded model stayed invisible for the
             # whole 7-day stale window unless the user found "Refresh Models" (#71169 class).
             def _refresh_custom():
                 live = _live()
-                return _entry(live) if live or isinstance(live, _NativePickerModelList) else None
+                return _entry(live) if live or isinstance(live, (_NativePickerModelList, EndpointModels)) else None
 
             _spawn_swr_refresh(cache_key, _refresh_custom)
             return _catalog(entry)
@@ -2572,7 +2587,7 @@ def cached_fetch_api_models(
         return None
 
     live = _live()
-    if live or isinstance(live, _NativePickerModelList):
+    if live or isinstance(live, (_NativePickerModelList, EndpointModels)):
         stored = _entry(live, now)
         _store_cache_entry(cache_key, stored, cache)
         return _catalog(stored)

@@ -810,17 +810,14 @@ class TestCodexBuildKwargs:
         headers = kw["extra_headers"]
 
         assert headers["x-test"] == "1"
-        # session_id header carries the raw physical id untouched regardless
-        # of length (#57012); x-client-request-id mirrors the body's
-        # effective (already-bounded) prompt_cache_key.
-        assert headers["session_id"] == session_id
-        assert headers["x-client-request-id"] == kw["prompt_cache_key"]
-        assert len(headers["x-client-request-id"]) <= 64
+        # Transcript identity stays physical; cache affinity matches the bounded body key.
+        assert headers["thread-id"] == headers["x-client-request-id"] == session_id
+        assert headers["session-id"] == kw["prompt_cache_key"]
+        assert len(headers["session-id"]) <= 64
+        assert "session_id" not in headers
 
     def test_codex_cache_scope_headers_normalize_cron_session_id(self, transport):
-        """x-client-request-id shares a cache scope across cron re-fires of the
-        same job (cron per-fire timestamp stripped, same as prompt_cache_key),
-        while session_id stays the raw per-fire physical id (#57012)."""
+        """session-id shares cache scope across cron re-fires; thread-id stays physical."""
         first_run = transport.build_kwargs(
             model="gpt-5.4",
             messages=[{"role": "user", "content": "Hi"}],
@@ -843,11 +840,11 @@ class TestCodexBuildKwargs:
             is_codex_backend=True,
         )["extra_headers"]
 
-        assert first_run["session_id"] == "cron_job42_20260801_090000"
-        assert second_run["session_id"] == "cron_job42_20260802_090000"
-        assert first_run["x-client-request-id"].startswith("pck_")
-        assert first_run["x-client-request-id"] == second_run["x-client-request-id"]
-        assert first_run["x-client-request-id"] != other_job["x-client-request-id"]
+        assert first_run["thread-id"] == "cron_job42_20260801_090000"
+        assert second_run["thread-id"] == "cron_job42_20260802_090000"
+        assert first_run["session-id"].startswith("pck_")
+        assert first_run["session-id"] == second_run["session-id"]
+        assert first_run["session-id"] != other_job["session-id"]
 
 
 

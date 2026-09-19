@@ -16,6 +16,7 @@ from typing import Any, List, Optional
 from agent.command_token_source import build_command_token_provider, materialize_probe_api_key
 from hermes_cli.providers import custom_provider_aliases, custom_provider_slug, get_label
 from utils import base_url_host_matches
+from hermes_cli.models_endpoint_catalog import EndpointModels
 
 # Log-record parity with the origin module.
 logger = logging.getLogger("hermes_cli.model_switch")
@@ -155,7 +156,7 @@ def _fetch_picker_live_models(
         api_url = _normalize_openai_base_url(api_url)
     generic_models = (cached_fetch_api_models if cache else fetch_api_models)(
         api_key, api_url, timeout=timeout, headers=resolved_headers, api_mode=api_mode)
-    return generic_models if generic_models or use_native else None
+    return generic_models if generic_models or use_native or isinstance(generic_models, EndpointModels) else None
 
 
 # Process-level guard: the prewarm thread is spawned at most once per process, otherwise a
@@ -596,7 +597,7 @@ def _discover_endpoint_models(
             )
             if has_explicit_models and isinstance(cached_models, _NativePickerModelList):
                 return None, False
-            if cached_models or isinstance(cached_models, _NativePickerModelList):
+            if cached_models or isinstance(cached_models, (_NativePickerModelList, EndpointModels)):
                 return cached_models, isinstance(cached_models, _NativePickerModelList) and not cached_models
         except (ImportError, OSError, RuntimeError, TimeoutError, TypeError, ValueError, http.client.HTTPException):
             pass
@@ -724,7 +725,9 @@ class _PickerBuild:
         self.results.append({
             "slug": slug, "name": name, "is_current": is_current, "is_user_defined": True,
             "models": models if shown is None else shown, "total_models": len(models), "source": source,
-            "api_url": api_url, "native_catalog_empty": native_catalog_empty})
+            "api_url": api_url, "native_catalog_empty": native_catalog_empty,
+            "model_metadata": getattr(models, "metadata", {}),
+            "catalog_authoritative": isinstance(models, EndpointModels)})
         self.seen_slugs.add(slug.lower())
 
     def record_section3_pair(self, name: str, url_norm: str) -> bool:
@@ -1237,7 +1240,7 @@ def _finalize_picker_rows(results: list, user_providers, current_model: str) -> 
     # provider's row.
     if current_model:
         for row in results:
-            if not row.get("is_current") or row.get("native_catalog_empty"):
+            if not row.get("is_current") or row.get("native_catalog_empty") or row.get("catalog_authoritative"):
                 continue
             models = row.get("models") or []
             if current_model not in models:

@@ -913,7 +913,9 @@ def _preflight_codex_api_kwargs(
     extra_headers = _optional_dict(api_kwargs, "extra_headers") or {}
     if not all(_nonblank(key) for key in extra_headers):
         raise ValueError("Codex Responses request 'extra_headers' keys must be non-empty strings.")
-    normalized_headers = {key.strip(): str(value) for key, value in extra_headers.items() if value is not None}
+    from openai import Omit
+    normalized_headers = {key.strip(): value if isinstance(value, Omit) else str(value)
+                          for key, value in extra_headers.items() if value is not None}
     if normalized_headers:
         normalized["extra_headers"] = normalized_headers
     # extra_body is verbatim: xAI carries ``prompt_cache_key`` as a body-level

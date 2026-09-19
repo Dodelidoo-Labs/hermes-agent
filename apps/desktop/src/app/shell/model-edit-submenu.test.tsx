@@ -24,6 +24,7 @@ afterEach(() => {
 
 // Render the submenu inside an open menu/sub so its content (switches) mounts.
 function renderSubmenu(opts: {
+  supportedEfforts?: readonly string[]
   defaultEffort?: string
   effort?: string
   fastControl: FastControl
@@ -38,6 +39,7 @@ function renderSubmenu(opts: {
         <DropdownMenuSub open>
           <DropdownMenuSubTrigger>edit</DropdownMenuSubTrigger>
           <ModelEditSubmenu
+            supportedEfforts={opts.supportedEfforts}
             defaultEffort={opts.defaultEffort ?? 'medium'}
             effort={opts.effort ?? 'medium'}
             fastControl={opts.fastControl}
@@ -127,5 +129,16 @@ describe('ModelEditSubmenu reports edits without performing them', () => {
     fireEvent.click(screen.getByRole('switch'))
 
     expect(onSelectModel).toHaveBeenCalledWith('m1-fast')
+  })
+})
+
+
+describe('advertised reasoning levels', () => {
+  it('uses updated catalog levels instead of the generic effort ladder', () => {
+    renderSubmenu({ supportedEfforts: ['low', 'high'], fastControl: { kind: 'none' }, onSetOptions: vi.fn(), reasoning: true })
+    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Low', 'High'])
+    cleanup()
+    renderSubmenu({ supportedEfforts: ['medium'], fastControl: { kind: 'none' }, onSetOptions: vi.fn(), reasoning: true })
+    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Medium'])
   })
 })

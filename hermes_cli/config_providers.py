@@ -528,7 +528,9 @@ def get_custom_provider_context_length(
         ctx = _positive_int(entry.get("context_length"))
         if ctx is not None:
             return ctx
-    return None
+    from hermes_cli.models_endpoint_catalog import endpoint_model_metadata
+    metadata = endpoint_model_metadata(model, base_url, config)
+    return _positive_int(metadata.get("context_length")) if metadata else None
 
 
 def get_custom_provider_model_capability(

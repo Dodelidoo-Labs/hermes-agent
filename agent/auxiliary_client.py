@@ -1351,9 +1351,10 @@ class _CodexStreamGuard:
 class _CodexCompletionsAdapter:
     """Drop-in shim routing chat.completions.create() kwargs through Codex Responses streaming."""
 
-    def __init__(self, real_client: OpenAI, model: str):
+    def __init__(self, real_client: OpenAI, model: str, provider: str = ""):
         self._client = real_client
         self._model = model
+        self._provider = provider
 
     def _build_responses_kwargs(self, kwargs: Dict[str, Any]) -> Tuple[Dict[str, Any], str, Any]:
         """chat.completions kwargs → Responses API kwargs, ``(resp_kwargs, model, timeout)``; mirrors codex.py::build_kwargs."""
@@ -1503,6 +1504,22 @@ class _CodexCompletionsAdapter:
         # Last, like the main transport: caller extra_body must not put a rejected Astra field back.
         from agent.transports.codex import _sanitize_astra_request_kwargs
         _sanitize_astra_request_kwargs(resp_kwargs, model, host)
+        # Auxiliary Responses bypasses the main transport. Reuse its header builder;
+        # only inherit named main-route identity when the complete endpoint matches.
+        from hermes_cli.route_identity import normalize_route_base_url
+        from agent.transports.codex import _apply_codex_affinity_headers
+        main_base = _runtime_main_value("base_url")
+        main_opencdx = (
+            _runtime_main_value("requested_provider") == "opencdx"
+            and _runtime_main_value("provider") in {"custom", "opencdx"}
+            and bool(main_base)
+            and normalize_route_base_url(host) == normalize_route_base_url(main_base)
+        )
+        if route.is_codex_backend or self._provider in {"opencdx", "openai-codex"} or main_opencdx:
+            _apply_codex_affinity_headers(
+                resp_kwargs, session_id=_runtime_main_value("session_id"),
+                client_default_headers=getattr(self._client, "default_headers", None),
+            )
         return resp_kwargs, model, timeout
 
     def create(self, **kwargs) -> Any:
@@ -1614,9 +1631,9 @@ _AsyncAnthropicCompletionsAdapter = _AsyncCompletionsAdapter  # imported by test
 class CodexAuxiliaryClient:
     """OpenAI-client-compatible wrapper routing through the Codex Responses API (.api_key/.base_url for introspection)."""
 
-    def __init__(self, real_client: OpenAI, model: str):
+    def __init__(self, real_client: OpenAI, model: str, provider: str = ""):
         self._real_client = real_client
-        self.chat = _ChatShim(_CodexCompletionsAdapter(real_client, model))
+        self.chat = _ChatShim(_CodexCompletionsAdapter(real_client, model, provider))
         self.api_key = real_client.api_key
         self.base_url = real_client.base_url
 
@@ -4787,7 +4804,7 @@ def _wrap_transport(req: _ResolveRequest, client_obj: Any, final_model_str: str,
         logger.debug("resolve_provider_client: wrapping client in CodexAuxiliaryClient "
                      "(api_mode=%s, model=%s, base_url=%s)",
                      req.api_mode or "auto-detected", final_model_str, base_url_str[:60] if base_url_str else "")
-        return CodexAuxiliaryClient(client_obj, final_model_str)
+        return CodexAuxiliaryClient(client_obj, final_model_str, provider=req.provider)
     # A profile that declares the Messages wire (commandcode-anthropic) is on it whatever the URL
     # looks like; the same declaration gates ``_reasoning_config`` in _build_call_kwargs.
     api_mode = req.api_mode or _profile_declared_messages_wire(req.provider)
@@ -5051,7 +5068,7 @@ def _resolve_named_custom_branch(req: _ResolveRequest) -> Optional[_ResolveResul
     client = _named_custom_openai_wire_client(custom_base, custom_key, entry_headers)
     # codex_responses, or auto-detect via _wrap_transport (which reads the task-level api_mode).
     if entry_api_mode == "codex_responses":
-        client = CodexAuxiliaryClient(client, final_model)
+        client = CodexAuxiliaryClient(client, final_model, provider=provider)
     else:
         client = _wrap_transport(req, client, final_model, custom_base, custom_key)
     return _route_client(req, client, final_model)

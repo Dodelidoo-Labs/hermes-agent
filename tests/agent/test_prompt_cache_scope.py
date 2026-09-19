@@ -275,7 +275,7 @@ class TestTransportWiring:
         k3 = transport.build_kwargs(**base, session_id="rotated-1")
         assert k3["prompt_cache_key"] != k1["prompt_cache_key"]
 
-    def test_codex_session_header_keeps_physical_id(self):
+    def test_codex_thread_headers_keep_physical_id(self):
         """Transcript identity (#57012 contract) must NOT be rewritten."""
         from agent.transports.codex import ResponsesApiTransport
 
@@ -291,9 +291,10 @@ class TestTransportWiring:
             cache_scope_id="root-sess",
             is_codex_backend=True,
         )
-        assert kwargs["extra_headers"]["session_id"] == "rotated-1"
+        assert kwargs["extra_headers"]["thread-id"] == "rotated-1"
+        assert kwargs["extra_headers"]["x-client-request-id"] == "rotated-1"
         # Routing header mirrors the body's scoped cache key.
-        assert kwargs["extra_headers"]["x-client-request-id"] == kwargs[
+        assert kwargs["extra_headers"]["session-id"] == kwargs[
             "prompt_cache_key"
         ]
 

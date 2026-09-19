@@ -36,11 +36,11 @@ def _cache_scope_from_session_id(session_id: Optional[str]) -> str:
 
 
 def _bounded_prompt_cache_key(value: Any) -> Optional[str]:
-    """Return a provider-safe (<=64 char) cache key without changing session identity."""
+    """Return a header-safe ASCII (<=64 char) cache key without changing session identity."""
     key = "" if value is None else str(value).strip()
     if not key:
         return None
-    return key if len(key) <= 64 else "pck_" + hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:24]
+    return key if len(key) <= 64 and key.isascii() and key.isprintable() else "pck_" + hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:24]
 
 
 def _bound_prompt_cache_key_field(container: Any) -> None:
@@ -55,10 +55,46 @@ def _bound_prompt_cache_key_field(container: Any) -> None:
 
 def _merge_extra_headers(kwargs: dict[str, Any], **headers: str) -> None:
     """Merge ``headers`` into a str-coerced copy of ``kwargs['extra_headers']`` (SDK kwarg -> HTTP headers)."""
+    from openai import Omit
     existing = kwargs.get("extra_headers")
-    merged = {str(k): str(v) for k, v in existing.items() if k and v is not None} if isinstance(existing, dict) else {}
+    merged = {str(k): v if isinstance(v, Omit) else str(v)
+              for k, v in existing.items() if k and v is not None} if isinstance(existing, dict) else {}
+    replaced = {k.lower() for k in headers}
+    merged = {k: v for k, v in merged.items() if k.lower() not in replaced}
     merged.update(headers)
     kwargs["extra_headers"] = merged
+
+
+def _apply_codex_affinity_headers(
+    kwargs: dict[str, Any], *, session_id: Any,
+    client_default_headers: Optional[dict] = None,
+) -> None:
+    """Keep ChatGPT cache affinity and transcript identity aligned with official Codex."""
+    _bound_prompt_cache_key_field(kwargs)
+    _bound_prompt_cache_key_field(kwargs.get("extra_body"))
+    # Official Codex: ChatGPT routes caches by session-id; thread-id and
+    # x-client-request-id retain the physical transcript identity.
+    extra_body = kwargs.get("extra_body")
+    effective_cache_key = (
+        extra_body.get("prompt_cache_key", kwargs.get("prompt_cache_key"))
+        if isinstance(extra_body, dict) else kwargs.get("prompt_cache_key")
+    )
+    headers = {
+        "thread-id": str(session_id) if session_id else None,
+        "session-id": effective_cache_key,
+        "x-client-request-id": str(session_id) if session_id else None,
+    }
+    headers = {k: v for k, v in headers.items() if v}
+    _merge_extra_headers(kwargs, **headers)
+    # The SDK merges defaults case-sensitively *before* HTTP normalization.
+    # Omit stale defaults, including cache affinity when the body deliberately has no key.
+    from openai import Omit
+    defaults = client_default_headers or {}
+    affinity_names = {"session-id", "thread-id", "x-client-request-id"}
+    for name in set(defaults) | set(kwargs["extra_headers"]):
+        lower = name.lower()
+        if lower == "session_id" or (lower in affinity_names and (name != lower or lower not in headers)):
+            kwargs["extra_headers"][name] = Omit()
 
 
 # Client-side ``web_search`` on xAI Responses collides with Grok's native tool
@@ -364,6 +400,13 @@ def _profile_declared_efforts(provider: Any, model: Optional[str], base_url: Any
     """
     try:
         from providers import get_provider_profile
+        from hermes_cli.models_endpoint_catalog import endpoint_model_metadata
+
+        metadata = endpoint_model_metadata(str(model or ""), str(base_url or ""))
+        reasoning = metadata.get("reasoning") if metadata else None
+        efforts = reasoning.get("supported_efforts") if isinstance(reasoning, dict) else None
+        if isinstance(efforts, list):
+            return tuple(efforts) if any(e != "none" for e in efforts) else ()
 
         name = str(provider or "").strip().lower()
         declared = None
@@ -575,14 +618,15 @@ class ResponsesApiTransport(ProviderTransport):
 
         params: instructions: str — system prompt (extracted from messages[0] if not given)
         reasoning_config: dict | None — {effort, enabled} session_id: str | None — transcript/session id;
-        drives the Codex ``session_id`` header, and is the cache-scope fallback when no ``cache_scope_id``
+        drives the Codex ``thread-id`` and ``x-client-request-id`` headers, and is the cache-scope fallback when no ``cache_scope_id``
         is given cache_scope_id: str | None — rotation-stable logical scope id (compression-lineage root;
         see agent/prompt_cache_scope.py). Preferred over session_id when deriving the prompt_cache_key
-        content hash and the xAI x-grok-conv-id header; the Codex x-client-request-id header mirrors the
+        content hash and the xAI x-grok-conv-id header; the Codex session-id header mirrors the
         resulting body key. Keeps the cache warm across context-compression session rotation (#79017)
         max_tokens: int | None — max_output_tokens timeout: float | None — per-request timeout forwarded to
         the SDK request_overrides: dict | None — extra kwargs merged in provider: str | None — provider name
-        for backend-specific logic base_url: str | None — endpoint URL base_url_hostname: str | None —
+        for backend-specific logic requested_provider: str | None — configured provider name before
+        custom-provider resolution; base_url: str | None — endpoint URL base_url_hostname: str | None —
         hostname for backend detection is_github_responses: bool — Copilot/GitHub models backend
         is_codex_backend: bool — chatgpt.com/backend-api/codex is_xai_responses: bool — xAI/Grok backend
         github_reasoning_extra: dict | None — Copilot reasoning params
@@ -663,6 +707,7 @@ class ResponsesApiTransport(ProviderTransport):
         _sanitize_astra_request_kwargs(kwargs, model, params.get("base_url"))
 
         _bound_prompt_cache_key_field(kwargs)
+        _bound_prompt_cache_key_field(kwargs.get("extra_body"))
 
         # Older xAI models reject ``service_tier`` (HTTP 400); only Grok 4.6 accepts Priority Processing.
         # Grok 4.6 accepts Priority Processing, but continue stripping stale or unsupported tier values on
@@ -680,17 +725,17 @@ class ResponsesApiTransport(ProviderTransport):
         else:
             kwargs.pop("timeout", None)
 
-        if is_codex_backend:
-            # SDK kwarg -> HTTP headers. ``session_id`` = raw physical id (transcript
-            # identity); ``x-client-request-id`` mirrors the body cache key so both agree.
-            headers = {
-                "session_id": str(session_id) if session_id else None,
-                "x-client-request-id": kwargs.get("prompt_cache_key") or _bounded_prompt_cache_key(_cache_scope),
-            }
-            headers = {k: v for k, v in headers.items() if v}
-            if headers:
-                _merge_extra_headers(kwargs, **headers)
-        elif params.get("max_tokens") is not None:
+        # openCDX consumes Codex affinity headers but also serves OpenRouter/Ollama:
+        # header support must not enable ChatGPT-only replay/compaction semantics.
+        is_opencdx = params.get("provider") == "opencdx" or (
+            params.get("provider") == "custom" and params.get("requested_provider") == "opencdx"
+        )
+        if is_codex_backend or is_opencdx:
+            _apply_codex_affinity_headers(
+                kwargs, session_id=session_id,
+                client_default_headers=params.get("client_default_headers"),
+            )
+        if not is_codex_backend and params.get("max_tokens") is not None:
             kwargs["max_output_tokens"] = params["max_tokens"]
 
         if is_xai_responses and session_id:

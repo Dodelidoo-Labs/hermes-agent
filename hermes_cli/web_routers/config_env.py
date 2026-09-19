@@ -718,6 +718,21 @@ async def validate_custom_endpoint(body: CustomEndpointUpdate):
     headers = {"Accept": "application/json"}
     if body.api_key and body.api_key.strip():
         headers["Authorization"] = f"Bearer {body.api_key.strip()}"
+    else:
+        # Reuse saved credentials only for the saved URL; editing the form must
+        # never send a stored credential to a different destination.
+        provider_key, entry = _resolve_custom_endpoint_entry(load_config().get("providers"), body.id or body.name)
+        if entry is not None and str(entry.get("base_url") or "").rstrip("/") == base_url:
+            from hermes_cli.runtime_provider import resolve_runtime_provider
+            from agent.command_token_source import materialize_probe_api_key
+            try:
+                runtime = await asyncio.to_thread(resolve_runtime_provider, requested=provider_key)
+                if str(runtime.get("base_url") or "").rstrip("/") == base_url:
+                    key = await asyncio.to_thread(materialize_probe_api_key, runtime.get("api_key"))
+                    if key:
+                        headers["Authorization"] = f"Bearer {key}"
+            except Exception:
+                return {"ok": False, "reachable": True, "message": "Could not obtain the saved endpoint credential.", "models": []}
 
     try:
         async with _endpoint_probe_client(url, 8.0) as client:
