@@ -9,7 +9,7 @@ description: "How to build a memory provider plugin for Hermes Agent"
 Memory provider plugins give Hermes Agent persistent, cross-session knowledge beyond the built-in MEMORY.md and USER.md. This guide covers how to build one.
 
 :::tip
-Memory providers are one of two **provider plugin** types. The other is [Context Engine Plugins](/developer-guide/context-engine-plugin), which replace the built-in context compressor. Both follow the same pattern: single-select, config-driven, managed via `hermes plugins`.
+Memory providers are one of two **provider plugin** types. The other is [Context Engine Plugins](./context-engine-plugin.md), which replace the built-in context compressor. Both follow the same pattern: single-select, config-driven, managed via `hermes plugins`.
 :::
 
 ## Installation Layouts
@@ -172,7 +172,7 @@ The preview includes the path so the agent can read the full result when it is
 actually needed. Results at or below the threshold are returned unchanged.
 
 This uses the shared `hooks.output_spill` settings (`10,000` characters by
-default); see [Plugins — oversized-context spill](/developer-guide/plugins/#oversized-context-spill).
+default); see [Plugins — oversized-context spill](./plugins/index.md#oversized-context-spill).
 
 ## Pre-Compress Checkpoints (fail-closed)
 
@@ -211,6 +211,12 @@ an active provider advertising the API completed its checkpoint: the
 uncompressed transcript is preserved, the compaction attempt errors with
 `BLOCKED_MISSING_PREREQUISITE`, and it can be retried once your store
 recovers. With the gate off (default), nothing changes for existing providers.
+
+None of the providers bundled with Hermes advertise checkpoint API v2 — the
+contract is opt-in and exists for third-party archiving providers. Enabling
+`checkpoint_required` without one therefore blocks every compression attempt
+(manual and automatic): agent init logs a warning naming the active provider,
+and each refusal names `compression.checkpoint_required` as the key to disable.
 
 The gate binds to every compaction authority, not just the Hermes
 summarizer: server-side native compaction (`compression.codex_responses_native`)
