@@ -56,10 +56,12 @@ def test_passive_check_uses_the_api_and_never_fetches(git_repo, monkeypatch):
     calls = _stub_git(monkeypatch, head=SHA_A)
     tip = MagicMock(return_value=SHA_B)
     monkeypatch.setattr(banner, "_github_branch_tip", tip)
-    monkeypatch.setattr(banner, "_github_compare_behind", lambda cur, tgt: 61)
+    compare = MagicMock(return_value=61)
+    monkeypatch.setattr(banner, "_github_compare_behind", compare)
 
     assert banner.check_for_updates() == 61
     tip.assert_called_once_with("nousresearch/hermes-agent", "main")
+    compare.assert_called_once_with(SHA_A, SHA_B, repo_slug="nousresearch/hermes-agent")
     assert not any(c[1] in {"fetch", "ls-remote"} for c in calls)
 
     cached = json.loads((git_repo.parent / ".update_check").read_text())

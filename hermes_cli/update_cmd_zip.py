@@ -362,6 +362,8 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False, _windo
     drivers causing 'Invalid argument'). Swaps the tree, then hands the rest of the run to an
     interpreter born on the new code (never returns; the child owns the receipt and exit code)."""
     from hermes_cli.update_cmd import _hand_off_post_swap, _m, _read_project_version, _resolve_update_options, _sweep_bytecode_after_update
+    from hermes_cli.update_managed_fork import require_official_zip_origin
+    require_official_zip_origin(_m().PROJECT_ROOT)
     gateway_mode = bool(getattr(args, "gateway", False))
     opts = _resolve_update_options(args, gateway_mode)
     # Snapshot before files are replaced, for the completion line.

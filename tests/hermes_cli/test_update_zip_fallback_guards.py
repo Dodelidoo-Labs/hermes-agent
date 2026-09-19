@@ -168,6 +168,8 @@ def test_update_via_zip_aborts_before_download_when_dirty(
     fake_root = tmp_path / "install"
     fake_root.mkdir()
     (fake_root / ".git").mkdir()
+    (fake_root / ".git" / "config").write_text(
+        '[remote "origin"]\nurl = https://github.com/NousResearch/hermes-agent.git\n', encoding="utf-8")
     local = fake_root / "keep-me.txt"
     local.write_text("local work\n", encoding="utf-8")
     untracked_dir = fake_root / "agent" / "scratch"

@@ -224,7 +224,7 @@ def _is_full_sha(value: Optional[str]) -> bool:
 _compare_payload_cache: Dict[tuple, dict] = {}
 
 
-def _github_compare(current_rev: str, target_rev: str) -> Optional[dict]:
+def _github_compare(current_rev: str, target_rev: str, *, repo_slug: str = "nousresearch/hermes-agent") -> Optional[dict]:
     """Compare payload for ``current...target`` from the GitHub API; memoized per process.
 
     Shallow installer clones and API-only probes know the two tip SHAs but have no local history
@@ -233,10 +233,10 @@ def _github_compare(current_rev: str, target_rev: str) -> Optional[dict]:
     """
     if not (_is_full_sha(current_rev) and _is_full_sha(target_rev)):
         return None
-    key = (current_rev, target_rev)
+    key = (repo_slug, current_rev, target_rev)
     if key in _compare_payload_cache:
         return _compare_payload_cache[key]
-    url = f"https://api.github.com/repos/nousresearch/hermes-agent/compare/{current_rev}...{target_rev}"
+    url = f"https://api.github.com/repos/{repo_slug}/compare/{current_rev}...{target_rev}"
 
     def _fetch():
         import urllib.request
@@ -252,9 +252,9 @@ def _github_compare(current_rev: str, target_rev: str) -> Optional[dict]:
     return payload
 
 
-def _github_compare_behind(current_rev: str, target_rev: str) -> Optional[int]:
+def _github_compare_behind(current_rev: str, target_rev: str, *, repo_slug: str = "nousresearch/hermes-agent") -> Optional[int]:
     """Exact behind-count via the GitHub compare API for uncountable graphs."""
-    payload = _github_compare(current_rev, target_rev)
+    payload = _github_compare(current_rev, target_rev, repo_slug=repo_slug)
     ahead = payload.get("ahead_by") if payload else None
     return ahead if isinstance(ahead, int) and not isinstance(ahead, bool) and ahead >= 0 else None
 
@@ -269,7 +269,11 @@ def upstream_commits_behind(n: int = 20) -> List[Dict[str, Any]]:
     head_rev, target_rev = cached.get("head"), cached.get("target")
     if not head_rev or not target_rev or head_rev == target_rev:
         return []
-    payload = _github_compare(head_rev, target_rev)
+    repo_dir = _resolve_repo_dir()
+    repo_slug = _comparison_repo(repo_dir)
+    if not repo_slug:
+        return []
+    payload = _github_compare(head_rev, target_rev, repo_slug=repo_slug)
     rows: List[Dict[str, Any]] = []
     for entry in (payload or {}).get("commits", []) if isinstance(payload, dict) else []:
         commit = entry.get("commit") or {}
@@ -302,8 +306,17 @@ def _tips_behind(head_rev: Optional[str], target_rev: Optional[str], repo_dir: O
     if head_rev == target_rev or (repo_dir is not None and _git_ok(
             ["merge-base", "--is-ancestor", target_rev, "HEAD"], cwd=repo_dir)):
         return 0
-    counted = _github_compare_behind(head_rev, target_rev)
+    repo_slug = _comparison_repo(repo_dir)
+    counted = _github_compare_behind(head_rev, target_rev, repo_slug=repo_slug) if repo_slug else None
     return counted if counted is not None else UPDATE_AVAILABLE_NO_COUNT
+
+
+def _comparison_repo(repo_dir: Optional[Path]) -> str | None:
+    if repo_dir is None:
+        return _OFFICIAL_REPO_CANONICAL.removeprefix("github.com/")
+    canonical = _canonical_github_remote(
+        _git_stdout(["remote", "get-url", "origin"], cwd=repo_dir, network=True))
+    return canonical.removeprefix("github.com/") if canonical.startswith("github.com/") else None
 
 
 def _github_branch_tip(repo_slug: str, branch: str) -> Optional[str]:

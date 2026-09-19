@@ -64,7 +64,7 @@ def review_markdown(packet):
     release = packet["release"]
     overlap = packet["overlapping_files"]
     lines = [
-        f"Integrate upstream release **{release['tag_name']}** into `opencdx`.", "",
+        f"Integrate upstream release **{release['tag_name']}** into `main`.", "",
         f"[Upstream release notes]({release['html_url']}) · published {release['published_at']}",
         "", packet["integration_stat"], "",
         "### Review our customizations", "",

@@ -547,7 +547,9 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
 
     # Probe locally for an 'upstream' remote before a network fetch non-forks always fail.
     fetch_result = None
-    if branch == "main" and _git_run(git_cmd, ["remote", "get-url", "upstream"]).returncode == 0:
+    from hermes_cli.update_managed_fork import is_maintained_checkout
+    if (branch == "main" and not is_maintained_checkout(git_cmd, _m().PROJECT_ROOT)
+            and _git_run(git_cmd, ["remote", "get-url", "upstream"]).returncode == 0):
         print("→ Fetching from upstream...")
         fetch_result = _git_run(git_cmd, ["fetch"] + depth_args + ["upstream", branch], network=True)
     if fetch_result is not None and fetch_result.returncode == 0:
@@ -588,7 +590,13 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
             return
         from hermes_cli.banner import _github_compare_behind
         # counted == 0 means local-ahead, not behind; None means the API could not count.
-        _print_update_check_result(_github_compare_behind(head_sha, target_sha), compare_branch)
+        if is_maintained_checkout(git_cmd, _m().PROJECT_ROOT):
+            from hermes_cli.banner import _comparison_repo
+            behind = _github_compare_behind(
+                head_sha, target_sha, repo_slug=_comparison_repo(_m().PROJECT_ROOT))
+        else:
+            behind = _github_compare_behind(head_sha, target_sha)
+        _print_update_check_result(behind, compare_branch)
         return
 
     rev_result = _git_run(git_cmd, ["rev-list", f"HEAD..{compare_branch}", "--count"], check=True)

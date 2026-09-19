@@ -10,8 +10,31 @@ def maintained_update_branch(origin: str) -> str | None:
         "git@github.com:dodelidoo-labs/hermes-agent",
         "ssh://git@github.com/dodelidoo-labs/hermes-agent",
     }:
-        return "opencdx"
+        return "main"
     return None
+
+
+def is_maintained_checkout(git_cmd: list[str], root: Path) -> bool:
+    from hermes_cli.update_cmd_git import _get_origin_url
+    return maintained_update_branch(_get_origin_url(git_cmd, root) or "") is not None
+
+
+def require_official_zip_origin(root: Path) -> None:
+    """Git may be broken here; never replace a fork with the official source ZIP."""
+    import configparser
+    from hermes_cli.banner import _canonical_github_remote, _OFFICIAL_REPO_CANONICAL
+
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        with (root / ".git" / "config").open(encoding="utf-8") as stream:
+            config.read_file(stream)
+        origin = config.get('remote "origin"', "url", fallback="")
+    except (OSError, configparser.Error):
+        origin = ""
+    if _canonical_github_remote(origin) != _OFFICIAL_REPO_CANONICAL:
+        raise SystemExit(
+            "ZIP update refused: origin is a fork or cannot be verified. "
+            "Repair Git and update from your maintained origin; official source will not be installed.")
 
 
 def check_maintained_update(git_cmd: list[str], root: Path, target: str) -> bool:

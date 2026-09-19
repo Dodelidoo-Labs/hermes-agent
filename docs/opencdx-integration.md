@@ -41,7 +41,7 @@ metadata. Its Desktop picker uses a generic reasoning ladder and can reinsert
 the selected model after discovery removes it. Its endpoint Test button also
 does not use saved command credentials.
 
-The maintained `opencdx` branch implements these client behaviors for custom endpoints:
+The maintained `main` branch implements these client behaviors for custom endpoints:
 
 - Cache model IDs and metadata together, scoped to endpoint and credentials;
   respect the endpoint's cache lifetime.
@@ -66,7 +66,7 @@ The maintained `opencdx` branch implements these client behaviors for custom end
   unsafe for HTTP headers are hashed consistently, and omitting a body key also
   omits its cache-affinity header.
 
-These are source changes maintained in [Dodelidoo-Labs/hermes-agent](https://github.com/Dodelidoo-Labs/hermes-agent/tree/opencdx), not a patch stored in OpenCDX.
+These are source changes maintained in [Dodelidoo-Labs/hermes-agent](https://github.com/Dodelidoo-Labs/hermes-agent/tree/main), not a patch stored in OpenCDX.
 See [fork maintenance](../FORK_MAINTENANCE.md) for tested upstream integration and update behavior.
 Desktop picker changes require rebuilding Desktop; Python-only header changes
 need a backend restart so an already running backend imports the new code.

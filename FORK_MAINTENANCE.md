@@ -1,10 +1,10 @@
-# Maintained Hermes releases for openCDX
+# Maintained Hermes releases for the fork
 
-This fork keeps live endpoint discovery and Codex cache affinity as ordinary Hermes
-source commits. The maintained and default branch is `opencdx` in
+This fork keeps all customizations as ordinary Hermes source commits, currently
+including live endpoint discovery and Codex cache affinity. The maintained and default branch is `main` in
 [Dodelidoo-Labs/hermes-agent](https://github.com/Dodelidoo-Labs/hermes-agent).
 Upstream is [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
-Fork `main` is an upstream reference, never the installed update target.
+Fork `main` is the only installed update target. Upstream is referenced by remote and release tags, not by a mirrored branch.
 
 [Integration setup](docs/opencdx-integration.md) documents provider configuration,
 model metadata, header behavior, and compatibility tests. The initial source commit
@@ -12,30 +12,36 @@ builds on upstream `1879088d3fadb885d04035f5fa658b6efc08a7a1`.
 
 ## Updating the installed Desktop and backend
 
-The installed checkout uses this fork as `origin`, branch `opencdx`, tracking
-`origin/opencdx`. `hermes update` and `hermes update --check` default to that branch
+The installed checkout uses this fork as `origin`, branch `main`, tracking
+`origin/main`. `hermes update` and `hermes update --check` default to that branch
 for this fork; official and other clones still default to `main`. Explicit `--branch`
 still selects the check target, but installation in this fork refuses any target
-other than `opencdx` and refuses to switch away from a local feature branch.
-The non-main Windows ZIP fallback refuses rather than downloading official main.
+other than `main` and refuses to switch away from a local feature branch.
+The Windows ZIP fallback requires a verified official origin and refuses this fork, even on main. Repair Git rather than installing official source over customizations.
 
-Desktop has the same origin-aware default unless an explicit branch is saved in
+Desktop defaults to main and migrates this fork's old saved opencdx setting. Other
+explicit settings are kept in
 its `userData/updates.json`. Existing app bundles must be rebuilt to acquire the
 new defaults and the customized model picker. An updated Python checkout alone
 does not update the packaged renderer or Electron updater. Until rebuilt, explicitly
-select `opencdx` in Desktop's update settings. A missing maintained remote branch
+select `main` in Desktop's update settings. A missing maintained remote branch
 fails the update instead of silently falling back to upstream main.
 
-Only reviewed changes merged into `opencdx` are offered through ordinary Desktop
+Only reviewed changes merged into `main` are offered through ordinary Desktop
 updates. Both the app and backend must come from that maintained source. Keep
 provider credentials, conversation data, and local updater settings out of Git.
+
+The maintained-origin guard disables the upstream-main sync and push paths even
+when an `upstream` remote exists. Explicit checks fetch origin, and passive checks
+and changelog queries use this fork's GitHub API. The branch name `main` grants no
+permission to install upstream code directly.
 
 ## Keeping present and future customizations
 
 Commit each customization to this fork and add behavior tests to
-`.github/scripts/check-opencdx.sh` or the Desktop checks in
-`.github/workflows/opencdx-compatibility.yml`. Make future changes on feature branches
-and review them into `opencdx` before installing them. Remote CI cannot protect edits
+`.github/scripts/check-fork.sh` or the Desktop checks in
+`.github/workflows/fork-compatibility.yml`. Make future changes on feature branches
+and review them into `main` before installing them. Remote CI cannot protect edits
 left only on a laptop. Keep the installed checkout clean and tracking the reviewed
 branch. This fork's updater refuses dirty checkouts (including lockfile edits and
 untracked files), unpublished/diverged commits, and unverified ancestry before
@@ -52,13 +58,13 @@ not immunity to every possible regression.
 ## Release delivery and version labels
 
 The delivery path is upstream release → isolated merge → tests/build → review PR →
-approved merge into `opencdx` → ordinary Desktop update/rebuild. Daily polling does
+approved merge into `main` → ordinary Desktop update/rebuild. Daily polling does
 not mean daily updates: no new upstream release means no new integration.
 
 The existing updater consumes a branch, not GitHub release assets. A fork tag such
-as `opencdx-v2026.9.14.1` may label an approved integration and link its review and
+as `fork-v2026.9.14.1` may label an approved integration and link its review and
 upstream notes, but a tag alone neither enables nor gates Desktop updates. This
-workflow does not publish tags or replace the updater. Merging into `opencdx` is the
+workflow does not publish tags or replace the updater. Merging into `main` is the
 publication decision: review and smoke-test before merging. Fork maintenance and
 intentional custom fixes may still be published independently of upstream releases.
 
@@ -69,11 +75,11 @@ release candidates and should not be merged under this policy.
 
 ## Preparing and reviewing upstream releases
 
-`Review upstream Hermes releases` (`opencdx-upstream-sync.yml`) runs daily at 06:17 UTC
+`Review upstream Hermes releases` (`fork-release-sync.yml`) runs daily at 06:17 UTC
 and on manual dispatch. It asks GitHub for the latest release, rejects drafts and
 prereleases, fetches that exact tag (including annotated tags), and prepares an
 isolated merge from the current maintained head. It never fetches upstream main as
-the integration target or changes `opencdx` automatically. Already-contained releases
+the integration target or changes `main` automatically. Already-contained releases
 are a no-op; network/metadata errors fail rather than falling back to main. Release
 tags are assumed immutable; the exact resolved commit is recorded for review.
 
@@ -93,7 +99,7 @@ Desktop with the actual router before approving installation.
 
 Only a successful candidate reaches publication. That separate job checks that the
 maintained base has not moved, pushes normally to
-`automation/release-<release-commit>-<base-sha>`, and opens a PR against `opencdx`.
+`automation/release-<release-commit>-<base-sha>`, and opens a PR against `main`.
 Existing candidates, including reviewer amendments, are revalidated without replacement.
 No force pushes or automatic merges occur. A moving base requires a new candidate.
 Older PRs are not silently closed; verify there are no unique reviewer amendments
@@ -122,7 +128,7 @@ merge commit**, never squash/rebase: subsequent integrations need upstream ances
 
 ## Repository safeguards
 
-Set the default branch to `opencdx` and enable only `openCDX compatibility` and
+Set the default branch to `main` and enable only `Fork compatibility` and
 `Review upstream Hermes releases`. Scheduled workflows use the default branch.
 Actions needs permission to create PRs. If creation fails, the tested candidate is
 published and the run provides a manual compare link; nothing is merged.
@@ -139,7 +145,7 @@ Workflow files do not configure those GitHub repository settings automatically.
 Install locked Python extras `dev` and `anthropic`, then run:
 
 ```sh
-bash .github/scripts/check-opencdx.sh
+bash .github/scripts/check-fork.sh
 npm ci
 cd apps/desktop
 npm run test:ui -- src/app/shell/model-edit-submenu.test.tsx

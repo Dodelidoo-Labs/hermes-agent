@@ -8,8 +8,8 @@ import subprocess
 import pytest
 
 
-SCRIPT = Path(__file__).resolve().parents[2] / ".github/scripts/opencdx_release.py"
-spec = importlib.util.spec_from_file_location("opencdx_release", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[2] / ".github/scripts/fork_release.py"
+spec = importlib.util.spec_from_file_location("fork_release", SCRIPT)
 release_sync = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release_sync)
 
@@ -43,7 +43,7 @@ def setup_repos(tmp_path):
     git(tmp_path, "clone", str(upstream), str(fork))
     git(fork, "config", "user.name", "Release test")
     git(fork, "config", "user.email", "test@example.invalid")
-    git(fork, "checkout", "-b", "opencdx")
+    git(fork, "checkout", "main")
     origin = tmp_path / "origin.git"
     git(tmp_path, "init", "--bare", str(origin))
     git(fork, "remote", "set-url", "origin", str(origin))
@@ -67,7 +67,7 @@ def test_release_preserves_customizations_excludes_main_and_reuses_amendments(tm
         target = fork / path / ("check.yml" if path.endswith("workflows") else "check.sh")
         target.write_text("maintained automation\n")
     base = commit(fork, "Customizations")
-    git(fork, "push", "origin", "opencdx")
+    git(fork, "push", "origin", "main")
     shared = upstream / "shared.txt"
     shared.write_text(shared.read_text().replace("first", "released behavior"))
     (upstream / ".github/workflows/check.yml").write_text("upstream automation\n")
@@ -95,7 +95,7 @@ def test_release_preserves_customizations_excludes_main_and_reuses_amendments(tm
     assert "released behavior" in (output / "overlapping-upstream-changes.patch").read_text()
     # Exercise the same artifact transfer used by the validation job.
     consumer = tmp_path / "consumer"
-    git(tmp_path, "clone", "--branch", "opencdx", str(origin), str(consumer))
+    git(tmp_path, "clone", "--branch", "main", str(origin), str(consumer))
     git(consumer, "fetch", str(output / "candidate.bundle"), "HEAD")
     assert git(consumer, "rev-parse", "FETCH_HEAD") == result["candidate"]
     assert release_sync.prepare(fork, release, str(upstream), tmp_path / "noop")["candidate"] == ""
@@ -113,7 +113,7 @@ def test_invalid_release_dirty_checkout_and_source_conflict_publish_nothing(tmp_
     upstream, fork, origin = setup_repos(tmp_path)
     (fork / "shared.txt").write_text("Our behavior\n")
     base = commit(fork, "Fork feature")
-    git(fork, "push", "origin", "opencdx")
+    git(fork, "push", "origin", "main")
     original_refs = git(origin, "show-ref")
     (upstream / "shared.txt").write_text("Conflicting upstream behavior\n")
     commit(upstream, "Upstream change")

@@ -24,7 +24,7 @@ def git(root, *args):
 def checkout(tmp_path, monkeypatch):
     root = tmp_path / "install"
     root.mkdir()
-    git(root, "init", "-b", "opencdx")
+    git(root, "init", "-b", "main")
     git(root, "config", "user.name", "Update test")
     git(root, "config", "user.email", "test@example.invalid")
     git(root, "remote", "add", "origin", "https://github.com/Dodelidoo-Labs/hermes-agent.git")
@@ -32,14 +32,14 @@ def checkout(tmp_path, monkeypatch):
     (root / "package-lock.json").write_text("{}\n")
     git(root, "add", ".")
     git(root, "commit", "-m", "Installed customizations")
-    git(root, "update-ref", "refs/remotes/origin/opencdx", "HEAD")
+    git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
     monkeypatch.setattr(main, "PROJECT_ROOT", root)
     return root
 
 
-def prepare(branch="opencdx"):
+def prepare(branch="main"):
     return _prepare_checkout_for_update(
-        ["git"], branch, "opencdx", is_fork=True, assume_yes=True, gateway_mode=True,
+        ["git"], branch, "main", is_fork=True, assume_yes=True, gateway_mode=True,
         gw_input_fn=None, switch_branch=True, _windows_gateway_resume=None,
     )
 
@@ -59,15 +59,15 @@ def test_local_edits_commits_and_wrong_targets_remain_in_place(checkout):
     git(root, "add", ".")
     git(root, "commit", "-m", "Unpublished future feature")
     local = git(root, "rev-parse", "HEAD")
-    for operation in (prepare, lambda: _reconcile_diverged_checkout(["git"], "opencdx", local)):
+    for operation in (prepare, lambda: _reconcile_diverged_checkout(["git"], "main", local)):
         with pytest.raises(SystemExit, match="unpublished"):
             operation()
         assert git(root, "rev-parse", "HEAD") == local
         assert (root / "new-feature.txt").read_text() == "untracked feature\n"
     with pytest.raises(SystemExit, match="only reviewed"):
-        prepare("main")
-    assert git(root, "branch", "--show-current") == "opencdx"
-    assert git(root, "rev-parse", "origin/opencdx") == original
+        prepare("feature/unreviewed")
+    assert git(root, "branch", "--show-current") == "main"
+    assert git(root, "rev-parse", "origin/main") == original
 
 
 def test_reviewed_fast_forward_keeps_installed_custom_behavior(checkout):
@@ -78,13 +78,13 @@ def test_reviewed_fast_forward_keeps_installed_custom_behavior(checkout):
     git(root, "add", ".")
     git(root, "commit", "-m", "Reviewed release")
     reviewed = git(root, "rev-parse", "HEAD")
-    git(root, "update-ref", "refs/remotes/origin/opencdx", reviewed)
-    git(root, "checkout", "opencdx")
+    git(root, "update-ref", "refs/remotes/origin/main", reviewed)
+    git(root, "checkout", "main")
     plan = prepare()
     assert plan.auto_stash_ref is None
     assert plan.commit_count > 0
     before = _pull_updates(
-        ["git"], "opencdx", plan.auto_stash_ref, prompt_for_restore=False,
+        ["git"], "main", plan.auto_stash_ref, prompt_for_restore=False,
         gw_input_fn=None, discard_local_changes=False, keep_stash=True,
     )
     assert before == installed

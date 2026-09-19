@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: opencdx-upstream-sync
+  group: fork-upstream-sync
   cancel-in-progress: false
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: opencdx
+          ref: main
           fetch-depth: 0
           persist-credentials: false
       - name: Prepare the latest published release
@@ -38,7 +38,7 @@ jobs:
           gh api repos/NousResearch/hermes-agent/releases/latest > "$RUNNER_TEMP/upstream-release.json"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python .github/scripts/opencdx_release.py \
+          python .github/scripts/fork_release.py \
             --release "$RUNNER_TEMP/upstream-release.json" \
             --output "$RUNNER_TEMP/release-review"
       - name: Already contains this release
@@ -55,7 +55,7 @@ jobs:
   validate:
     needs: prepare
     if: needs.prepare.outputs.candidate != ''
-    uses: ./.github/workflows/opencdx-compatibility.yml
+    uses: ./.github/workflows/fork-compatibility.yml
     with:
       base: ${{ needs.prepare.outputs.base }}
       candidate: ${{ needs.prepare.outputs.candidate }}
@@ -94,7 +94,7 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$CANDIDATE"
           git merge-base --is-ancestor "$BASE" "$CANDIDATE"
           gh auth setup-git
-          git fetch origin opencdx
+          git fetch origin main
           if test "$(git rev-parse FETCH_HEAD)" != "$BASE"; then
             echo 'Maintained branch moved during validation; rerun against its new head.' >&2
             exit 1
@@ -111,13 +111,13 @@ jobs:
           body="$RUNNER_TEMP/upstream-pr.md"
           cp "$RUNNER_TEMP/upstream-candidate/review.md" "$body"
           printf '\nValidation and downloadable review artifact: %s\n' "$RUN_URL" >> "$body"
-          pr=$(gh pr list --base opencdx --head "$branch" --state open --json number --jq '.[0].number // empty')
+          pr=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
           if test -n "$pr"; then
             gh pr edit "$pr" --title "Integrate Hermes release $RELEASE_TAG" --body-file "$body"
           else
-            if ! gh pr create --base opencdx --head "$branch" --title "Integrate Hermes release $RELEASE_TAG" --body-file "$body"; then
+            if ! gh pr create --base main --head "$branch" --title "Integrate Hermes release $RELEASE_TAG" --body-file "$body"; then
               echo 'Candidate published; automatic PR creation failed. Check Actions PR permissions or open manually.' >> "$GITHUB_STEP_SUMMARY"
-              echo "Open a PR manually: https://github.com/$GH_REPO/compare/opencdx...$branch?expand=1" >> "$GITHUB_STEP_SUMMARY"
+              echo "Open a PR manually: https://github.com/$GH_REPO/compare/main...$branch?expand=1" >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
           fi
