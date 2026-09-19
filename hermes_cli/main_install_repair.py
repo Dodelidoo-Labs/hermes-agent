@@ -1246,5 +1246,17 @@ def _resolve_node_runtime_npm() -> str | None:
 
 
 def _resolve_update_branch(args) -> str:
-    """Normalize ``args.branch`` to a non-empty name (default ``main``; blank/whitespace = default)."""
-    return (getattr(args, "branch", None) or "main").strip() or "main"
+    """Honor explicit targets; keep this maintained fork on its reviewed release branch."""
+    explicit = (getattr(args, "branch", None) or "").strip()
+    if explicit:
+        return explicit
+    from hermes_cli.main import PROJECT_ROOT
+    from hermes_cli.update_cmd_git import _get_origin_url
+    origin = (_get_origin_url(["git"], PROJECT_ROOT) or "").rstrip("/").removesuffix(".git").lower()
+    if origin in {
+        "https://github.com/dodelidoo-labs/hermes-agent",
+        "git@github.com:dodelidoo-labs/hermes-agent",
+        "ssh://git@github.com/dodelidoo-labs/hermes-agent",
+    }:
+        return "opencdx"
+    return "main"
