@@ -62,4 +62,6 @@ jobs:
         working-directory: apps/desktop
         run: |
           npm run test:ui -- src/app/shell/model-edit-submenu.test.tsx
+          npm run test:desktop:platforms -- electron/desktop-update-branch.test.ts
           npx tsc -p . --noEmit
+          npx tsc -p tsconfig.electron.json --noEmit

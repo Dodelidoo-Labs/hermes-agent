@@ -20,6 +20,14 @@ An explicit `--branch` always wins. Switching to `--branch main` deliberately le
 these maintained changes behind. The non-main Windows ZIP fallback refuses the
 operation instead of silently downloading official main.
 
+Desktop uses the same origin-aware default when no explicit update branch is saved.
+Update checks and configured-target update paths honor an explicitly saved branch
+in the app's `userData/updates.json`. The existing macOS/Linux update handoff instead
+keeps the current Git branch when it can detect one; otherwise it uses the resolved
+setting/default. Existing packaged apps must be rebuilt to acquire the new defaults;
+until then pin their Desktop branch to `opencdx`. A missing maintained remote branch
+fails the update instead of silently falling back to upstream `main`.
+
 Normal updates consume reviewed commits already merged into `origin/opencdx`.
 Do not point the updater directly at upstream main. No updater configuration,
 provider credentials, or conversation data belong in this repository.
@@ -81,5 +89,7 @@ bash .github/scripts/check-opencdx.sh
 npm ci
 cd apps/desktop
 npm run test:ui -- src/app/shell/model-edit-submenu.test.tsx
+npm run test:desktop:platforms -- electron/desktop-update-branch.test.ts
 npx tsc -p . --noEmit
+npx tsc -p tsconfig.electron.json --noEmit
 ```
